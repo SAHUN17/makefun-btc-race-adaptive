@@ -48,6 +48,21 @@ buy-and-hold loses), the final bot scored:
 
 The 2×-fee figure is the honest robustness check: the edge survives doubling every fee.
 
+### Why not momentum
+
+The strategy choice was made with real `grade-local` runs, not guesses. On the same dev window the
+kit's baseline bots all lost money after fees:
+
+| baseline | net PnL | trades |
+| --- | --- | --- |
+| momentum (24-bar, rebalanced) | −$40.924874 | 1 |
+| ema-cross (8/21) | −$134.953038 | 63 |
+| rsi-bollinger | −$57.365539 | 12 |
+| **this bot** | **+$25.452184** | **4** |
+
+A falling window rewards buying a confirmed rebound and staying out otherwise, not chasing the
+trend or holding BTC through it.
+
 Command (docker is unavailable here, so the process driver is used):
 
 ```
