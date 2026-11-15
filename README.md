@@ -14,7 +14,8 @@ Deep-dip mean reversion with a confirmed turn, long only:
 
 - **Dip event.** A close at least 3% below the rolling 120-bar high arms a latched oversold event.
   The event lives for up to 240 bars, so the bot can wait for the market to turn instead of demanding
-  the dip be instantaneous.
+  the dip be instantaneous. It arms once per crossing: the drawdown must recover below half the
+  threshold before a new event can arm, so one selloff cannot re-fire after a stop-out and cooldown.
 - **Rebound confirmation.** The newest bar must not be a new low, and the close must be up over the
   last 15 bars or at least 0.2% off that window's low. The first confirmed bounce while the event is
   live is the entry; the event is consumed, so each dip is played once.
@@ -62,6 +63,10 @@ kit's baseline bots all lost money after fees:
 
 A falling window rewards buying a confirmed rebound and staying out otherwise, not chasing the
 trend or holding BTC through it.
+
+A multi-regime variant (this dip plus a 60-bar breakout above the 120-bar SMA, gated by a realised
+volatility band) was also graded: +$2.873043 net over 11 trades, 2.2148% drawdown, and −$0.035737 at
+2× fees. It was worse on every measure, so the single-regime dip bot is what ships.
 
 Command (docker is unavailable here, so the process driver is used):
 

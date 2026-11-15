@@ -7,11 +7,12 @@
 //
 //   - Dip: a close at least DIP_DD_BPS (3%) below the rolling DIP_LOOKBACK (120-bar) high. That
 //     drawdown arms a latched oversold event, which stays live for DIP_EXPIRY_BARS (240) bars so the
-//     entry can wait for a turn instead of demanding the dip be instant.
+//     entry can wait for a turn instead of demanding the dip be instant. It arms once per crossing:
+//     the drawdown must recover below half the threshold before a new event can arm, so one selloff
+//     is played once even across a stop-out and cooldown.
 //   - Rebound confirmation: the newest bar is not a new low, and the close is either up over the last
 //     REBOUND_BARS (15) bars or REBOUND_OFF_LOW_BPS (0.2%) off that window's low. The first confirmed
-//     bounce while the event is live is the entry; the event is consumed by that entry, so one dip is
-//     played once.
+//     bounce while the event is live is the entry, and the entry consumes the event.
 //   - Exits, all decided on the latest close and filled at the next open: a stop at STOP_BPS (1.5%)
 //     below cost, a take-profit at TARGET_BPS (4%) above cost, a trailing stop of TRAIL_BPS (1%) that
 //     only arms once the position is TRAIL_ARM_BPS (2.5%) over cost, and a time stop at MAX_HOLD_BARS
@@ -74,6 +75,8 @@ let oversoldUntil = -1;
 let prevHeld = false;
 /** Batch seq at which the current position was first seen in the account (-1: none). */
 let entrySeq = -1;
+/** Hysteresis: true once the drawdown has recovered below half the dip threshold, so a new event can arm. */
+let dipReset = true;
 
 /** Recent realised volatility: the sample std of the last VOL_BARS close-to-close returns. */
 function volatility(): number {
@@ -117,10 +120,10 @@ function drawdown(): number {
 /** Whether the last bars confirm a rebound off the rolling low or a positive short return. */
 function reboundConfirmed(): boolean {
   const n = closes.length;
-  if (n < REBOUND_BARS + 1) return false;
+  if (n < REBOUND_BARS + 2) return false;
   const last = closes[n - 1];
   if (last < closes[n - 2]) return false; // the newest bar must not make a new low
-  const ret = last / closes[n - REBOUND_BARS] - 1;
+  const ret = last / closes[n - REBOUND_BARS - 1] - 1;
   let low = Infinity;
   for (let i = n - REBOUND_BARS; i < n; i++) if (closes[i] < low) low = closes[i];
   const offLow = low > 0 ? (last - low) / low : 0;
@@ -172,6 +175,17 @@ await runBars({
     if (state.warmingUp) return [];
     if (!fresh) return []; // no bar this minute: decide nothing on stale prices
 
+    // Arm an oversold event once per dip crossing, with hysteresis: the drawdown must recover below
+    // half the entry threshold before a new event can arm. An entry consumes the event, so the same
+    // selloff cannot re-fire after a stop-out and cooldown (the old rearm-every-bar latch could, and
+    // did in a persistent selloff).
+    const depth = drawdown();
+    if (depth < DIP_DD_BPS / 20_000) dipReset = true;
+    if (dipReset && depth >= DIP_DD_BPS / 10_000) {
+      oversoldUntil = state.seq + DIP_EXPIRY_BARS;
+      dipReset = false;
+    }
+
     if (held !== undefined) {
       if (shouldExit(state, held)) {
         return [{ side: 'sell', symbol: SYMBOL, qty: held.qty, max_slippage_bps: MAX_SLIPPAGE_BPS }] satisfies SellInput[];
@@ -179,10 +193,6 @@ await runBars({
       return [];
     }
 
-    // Latch an oversold event whenever the rolling drawdown is deep enough, and let it live for a
-    // bounded window so the entry waits for the rebound even if the dip is no longer instant.
-    const depth = drawdown();
-    if (depth >= DIP_DD_BPS / 10_000) oversoldUntil = state.seq + DIP_EXPIRY_BARS;
     if (cooldown > 0) {
       cooldown--;
       return [];
